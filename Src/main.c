@@ -1,113 +1,191 @@
 /**
-  ******************************************************************************
-  * @file    main.c
-  * @author  Mertcan Ekiz
-  * @version V1.0.0
-  * @date    21-Nov-2019
-  * @brief   Lamp Simulator
-  *
-  *****************************************************************************/
+ ******************************************************************************
+ * @file           : main.c
+ * @brief          : Main program body
+ ******************************************************************************
+ * @attention
+ *
+ * <h2><center>&copy; Copyright (c) 2019 STMicroelectronics.
+ * All rights reserved.</center></h2>
+ *
+ * This software component is licensed by ST under BSD 3-Clause license,
+ * the "License"; You may not use this file except in compliance with the
+ * License. You may obtain a copy of the License at:
+ *                        opensource.org/licenses/BSD-3-Clause
+ *
+ ******************************************************************************
+ */
+
+/* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include <stm32f0xx.h>
 
-#define RESET_DELAY 3000 
-#define FIRST_STATE 0
-typedef enum {
-    STATE_RED_A = FIRST_STATE,
-    STATE_RED_B,
-    STATE_LOW_A,
-    STATE_LOW_B,
-    STATE_HIGH_A,
-    STATE_HIGH_B,
-    STATE_OFF_A,
-    STATE_OFF_B
-} STATE;
+void HAL_GPIO_EXTI_Callback(uint16_t pin)
+{
+  buffer_timer_start = HAL_GetTick();
+  last_button_state = HAL_GPIO_ReadPin(BTN1_GPIO_Port, BTN1_Pin);
+}
 
-uint8_t state = STATE_OFF_B;
-uint16_t counter = 0;
-uint16_t timer = 0;
-static __IO uint32_t TimingDelay;
+void handle_button(uint8_t button)
+{
+  if (button == state % 2) {
+    if (HAL_GetTick() - timer_start > RESET_DELAY && state != STATE_OFF_A && state != STATE_OFF_B) {
+      state = STATE_OFF_A;
+      timer_start = HAL_GetTick();
+      return;
+    }
+    state++;
+    timer_start = HAL_GetTick();
+  }
+}
 
+void SystemClock_Config(void);
+static void MX_GPIO_Init(void);
+
+/**
+  * @brief  The application entry point.
+  * @retval int
+  */
 int main(void)
 {
-    SysTick_Config(SystemCoreClock / 1000);
-    STM_EVAL_LEDInit(LED3);
-    STM_EVAL_LEDInit(LED4);
-    STM_EVAL_PBInit(BUTTON_USER, BUTTON_MODE_GPIO);
-    STM_EVAL_LEDOff(LED3);
-    STM_EVAL_LEDOff(LED4);
-
-
-    while (1)
+  HAL_Init();
+  SystemClock_Config();
+  MX_GPIO_Init();
+  buffer_timer_start = HAL_GetTick();
+  state = FIRST_STATE;
+  while (1)
+  {
+    switch (state)
     {
-        switch (state)
-        {
-            case STATE_RED_A:
-            case STATE_RED_B:
-                STM_EVAL_LEDOff(LED3);
-                STM_EVAL_LEDOn(LED4);
-                timer++;
-                break;
-            case STATE_LOW_A:
-            case STATE_LOW_B:
-                LEDToggle(200);
-                timer++;
-                break;
-            case STATE_HIGH_A:
-            case STATE_HIGH_B:
-                LEDToggle(100);
-                timer++; // This isn't technically needed.
-                break;
-            case STATE_OFF_A:
-            case STATE_OFF_B:
-                STM_EVAL_LEDOff(LED3);
-                STM_EVAL_LEDOff(LED4);
-                break;
-            default:
-                state = FIRST_STATE;
-                break;
-        }
-        if (STM_EVAL_PBGetState(BUTTON_USER) == (state % 2)) {
-        // ^^^ This conditional is equivalent to:
-        //
-        //    if ((STM_EVAL_PBGetState(BUTTON_USER) == 1 && (state % 2 == 1)) ||
-        //       (STM_EVAL_PBGetState(BUTTON_USER) == 0 && (state % 2 == 0))) {
-        //
-        // Which means that an odd numbered state will go to the next state on a button press,
-        // whereas an even numbered state will go to the next state after a button release.
-            if (timer > RESET_DELAY) {
-                state = STATE_OFF_A;
-                timer = 0;
-                continue;
-            }
-            if (state == STATE_RED_B) {
-                STM_EVAL_LEDOff(LED4);
-            }
-            state++;
-            timer = 0;
-        }
-        Delay(1);
+      case STATE_RED_A:
+      case STATE_RED_B:
+        HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(LD4_GPIO_Port, LD4_Pin, GPIO_PIN_SET);
+        break;
+      case STATE_LOW_A:
+      case STATE_LOW_B:
+        HAL_GPIO_WritePin(LD4_GPIO_Port, LD4_Pin, GPIO_PIN_RESET);
+        HAL_GPIO_TogglePin(LD3_GPIO_Port, LD3_Pin);
+        HAL_Delay(200);
+        break;
+      case STATE_HIGH_A:
+      case STATE_HIGH_B:
+        HAL_GPIO_TogglePin(LD3_GPIO_Port, LD3_Pin);
+        HAL_Delay(100);
+        break;
+      case STATE_OFF_A:
+      case STATE_OFF_B:
+        HAL_GPIO_WritePin(LD3_GPIO_Port, LD3_Pin, GPIO_PIN_RESET);
+        HAL_GPIO_WritePin(LD4_GPIO_Port, LD4_Pin, GPIO_PIN_RESET);
+        break;
+      default:
+        state = FIRST_STATE;
+        break;
     }
+  }
 }
 
-void LEDToggle(uint16_t delay)
+/**
+  * @brief System Clock Configuration
+  * @retval None
+  */
+void SystemClock_Config(void)
 {
-    if (++counter > delay) {
-        STM_EVAL_LEDToggle(LED3);
-        counter = 0;
-    }
+  RCC_OscInitTypeDef RCC_OscInitStruct = {0};
+  RCC_ClkInitTypeDef RCC_ClkInitStruct = {0};
+
+  /** Initializes the CPU, AHB and APB busses clocks
+  */
+  RCC_OscInitStruct.OscillatorType = RCC_OSCILLATORTYPE_HSI;
+  RCC_OscInitStruct.HSIState = RCC_HSI_ON;
+  RCC_OscInitStruct.HSICalibrationValue = RCC_HSICALIBRATION_DEFAULT;
+  RCC_OscInitStruct.PLL.PLLState = RCC_PLL_ON;
+  RCC_OscInitStruct.PLL.PLLSource = RCC_PLLSOURCE_HSI;
+  RCC_OscInitStruct.PLL.PLLMUL = RCC_PLL_MUL12;
+  RCC_OscInitStruct.PLL.PREDIV = RCC_PREDIV_DIV1;
+  if (HAL_RCC_OscConfig(&RCC_OscInitStruct) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /** Initializes the CPU, AHB and APB busses clocks
+  */
+  RCC_ClkInitStruct.ClockType = RCC_CLOCKTYPE_HCLK|RCC_CLOCKTYPE_SYSCLK
+                              |RCC_CLOCKTYPE_PCLK1;
+  RCC_ClkInitStruct.SYSCLKSource = RCC_SYSCLKSOURCE_PLLCLK;
+  RCC_ClkInitStruct.AHBCLKDivider = RCC_SYSCLK_DIV1;
+  RCC_ClkInitStruct.APB1CLKDivider = RCC_HCLK_DIV1;
+
+  if (HAL_RCC_ClockConfig(&RCC_ClkInitStruct, FLASH_LATENCY_1) != HAL_OK)
+  {
+    Error_Handler();
+  }
 }
 
-void Delay(__IO uint32_t nTime)
+/**
+  * @brief GPIO Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_GPIO_Init(void)
 {
-    TimingDelay = nTime;
-    while (TimingDelay != 0);
+  GPIO_InitTypeDef GPIO_InitStruct = {0};
+
+  /* GPIO Ports Clock Enable */
+  __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(GPIOC, LD4_Pin|LD3_Pin, GPIO_PIN_RESET);
+
+  /*Configure GPIO pin : BTN1_Pin */
+  GPIO_InitStruct.Pin = BTN1_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  HAL_GPIO_Init(BTN1_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pins : LD4_Pin LD3_Pin */
+  GPIO_InitStruct.Pin = LD4_Pin|LD3_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(GPIOC, &GPIO_InitStruct);
+
+  /* EXTI interrupt init*/
+  HAL_NVIC_SetPriority(EXTI0_1_IRQn, 0, 0);
+  HAL_NVIC_EnableIRQ(EXTI0_1_IRQn);
+
 }
 
-void TimingDelay_Decrement(void)
+/* USER CODE BEGIN 4 */
+
+/* USER CODE END 4 */
+
+/**
+  * @brief  This function is executed in case of error occurrence.
+  * @retval None
+  */
+void Error_Handler(void)
 {
-    if (TimingDelay != 0x00)
-    {
-        TimingDelay--;
-    }
+  /* USER CODE BEGIN Error_Handler_Debug */
+  /* User can add his own implementation to report the HAL error return state */
+
+  /* USER CODE END Error_Handler_Debug */
 }
+
+#ifdef  USE_FULL_ASSERT
+/**
+  * @brief  Reports the name of the source file and the source line number
+  *         where the assert_param error has occurred.
+  * @param  file: pointer to the source file name
+  * @param  line: assert_param error line source number
+  * @retval None
+  */
+void assert_failed(char *file, uint32_t line)
+{
+  /* USER CODE BEGIN 6 */
+  /* User can add his own implementation to report the file name and line number,
+tex: printf("Wrong parameters value: file %s on line %d\r\n", file, line) */
+  /* USER CODE END 6 */
+}
+#endif /* USE_FULL_ASSERT */
+
+/************************ (C) COPYRIGHT STMicroelectronics *****END OF FILE****/
